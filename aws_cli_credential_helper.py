@@ -138,16 +138,34 @@ CLR_BANNER_FG  = "#f0c674"
 CLR_INFO_BG    = "#1f2b3d"   # informational banner (blue-tinted)
 CLR_INFO_FG    = "#8fb8e8"
 
-def styled_entry(parent: tk.Widget, textvariable: tk.StringVar, width: int = 36) -> tk.Entry:
+def styled_entry(parent: tk.Widget, textvariable: tk.StringVar, width: int = 36,
+                  placeholder: str = "") -> tk.Entry:
     """Consistent dark-themed text entry — plain tk.Entry defaults to a
     white background with a black cursor, which needs overriding on every
-    instance to fit a dark window."""
-    return tk.Entry(
+    instance to fit a dark window.
+
+    If `placeholder` is given, a faint example string is overlaid while the
+    field is empty (e.g. "https://your-org.awsapps.com/start"). It's purely
+    visual — drawn with a separate Label on top of the Entry — so it never
+    gets written into textvariable or saved as a real value."""
+    entry = tk.Entry(
         parent, textvariable=textvariable, width=width,
         bg=CLR_ENTRY_BG, fg=CLR_ENTRY_FG, insertbackground=CLR_ENTRY_FG,
         relief="flat", highlightthickness=1,
         highlightbackground=CLR_BORDER, highlightcolor=CLR_BTN
     )
+    if placeholder:
+        hint = tk.Label(parent, text=placeholder, bg=CLR_ENTRY_BG, fg=CLR_MUTED,
+                        anchor="w", font=("", 8))
+        def refresh_hint(*_):
+            if textvariable.get():
+                hint.place_forget()
+            else:
+                hint.place(in_=entry, x=6, y=0, relheight=1.0,
+                          width=-6, relwidth=1.0)
+        textvariable.trace_add("write", refresh_hint)
+        refresh_hint()
+    return entry
 
 DEFAULT_CONFIG = {
     "_readme": (
@@ -569,7 +587,7 @@ class SetupWizard(tk.Toplevel):
         self._sw.pack(fill="both", expand=True)
 
         self.update_idletasks()
-        self.geometry("520x480")
+        self.geometry(f"{max(520, self.winfo_reqwidth())}x{self.winfo_reqheight()}")
         sw = self.winfo_screenwidth()
         sh = self.winfo_screenheight()
         self.geometry(f"+{(sw - self.winfo_width()) // 2}+{(sh - self.winfo_height()) // 2}")
@@ -636,7 +654,7 @@ class SettingsContent(tk.Frame):
 
     def _build_auth_section(self):
         outer = tk.Frame(self, bg=CLR_BG, padx=16, pady=14)
-        outer.pack(fill="both", expand=True)
+        outer.pack(fill="both")
         auth = self.cfg.get("auth", {})
 
         tk.Label(outer, text="Authentication Method", bg=CLR_BG, fg=CLR_FG,
@@ -645,14 +663,23 @@ class SettingsContent(tk.Frame):
         self._auth_method = tk.StringVar(value=auth.get("method", "idc"))
         rb = tk.Frame(outer, bg=CLR_BG)
         rb.pack(anchor="w", pady=(0, 6))
-        tk.Radiobutton(rb, text="AWS Identity Center (IDC)", bg=CLR_BG, fg=CLR_FG,
-                       activebackground=CLR_BG, activeforeground=CLR_FG,
-                       selectcolor=CLR_BTN, highlightthickness=0,
+        # indicatoron=0 turns this into a flat chip whose own background IS
+        # the selected/unselected color — deterministic across platforms.
+        # (The classic circular indicator's selectcolor is only *supposed*
+        # to apply when selected, but rendering this is inconsistent across
+        # Tk builds, which is why both chips could show the same color.)
+        tk.Radiobutton(rb, text="AWS Identity Center (IDC)", indicatoron=0,
+                       bg=CLR_BTN_NEUTRAL, fg=CLR_FG,
+                       selectcolor=CLR_GREEN, activebackground=CLR_BTN_NEUTRAL_HOVER,
+                       activeforeground=CLR_FG, relief="flat", highlightthickness=0,
+                       padx=10, pady=5,
                        variable=self._auth_method, value="idc",
-                       command=self._toggle_auth).pack(side="left", padx=(0, 20))
-        tk.Radiobutton(rb, text="Direct SAML federation", bg=CLR_BG, fg=CLR_FG,
-                       activebackground=CLR_BG, activeforeground=CLR_FG,
-                       selectcolor=CLR_BTN, highlightthickness=0,
+                       command=self._toggle_auth).pack(side="left", padx=(0, 8))
+        tk.Radiobutton(rb, text="Direct SAML federation", indicatoron=0,
+                       bg=CLR_BTN_NEUTRAL, fg=CLR_FG,
+                       selectcolor=CLR_GREEN, activebackground=CLR_BTN_NEUTRAL_HOVER,
+                       activeforeground=CLR_FG, relief="flat", highlightthickness=0,
+                       padx=10, pady=5,
                        variable=self._auth_method, value="saml",
                        command=self._toggle_auth).pack(side="left")
 
@@ -665,7 +692,9 @@ class SettingsContent(tk.Frame):
         tk.Label(self._idc_frame, text="SSO Start URL", width=18, anchor="w",
                  bg=CLR_BG, fg=CLR_FG).grid(row=0, column=0, sticky="w", pady=3)
         v = tk.StringVar(value=idc.get("ssoStartUrl", ""))
-        styled_entry(self._idc_frame, v).grid(row=0, column=1, sticky="ew", padx=(6, 0))
+        styled_entry(self._idc_frame, v,
+                     placeholder="https://your-org.awsapps.com/start"
+                    ).grid(row=0, column=1, sticky="ew", padx=(6, 0))
         self._idc["ssoStartUrl"] = v
 
         tk.Label(self._idc_frame, text="SSO Region", width=18, anchor="w",
@@ -677,7 +706,9 @@ class SettingsContent(tk.Frame):
         tk.Label(self._idc_frame, text="Account ID", width=18, anchor="w",
                  bg=CLR_BG, fg=CLR_FG).grid(row=2, column=0, sticky="w", pady=3)
         v = tk.StringVar(value=idc.get("accountId", ""))
-        styled_entry(self._idc_frame, v).grid(row=2, column=1, sticky="ew", padx=(6, 0))
+        styled_entry(self._idc_frame, v,
+                     placeholder="123456789012"
+                    ).grid(row=2, column=1, sticky="ew", padx=(6, 0))
         self._idc["accountId"] = v
         tk.Label(self._idc_frame, text="AWS account number this permission set grants access to",
                  bg=CLR_BG, fg=CLR_MUTED, font=("", 8)).grid(row=3, column=1, sticky="w", padx=(6, 0))
@@ -685,7 +716,9 @@ class SettingsContent(tk.Frame):
         tk.Label(self._idc_frame, text="Permission Set Name", width=18, anchor="w",
                  bg=CLR_BG, fg=CLR_FG).grid(row=4, column=0, sticky="w", pady=(8, 3))
         v = tk.StringVar(value=idc.get("permissionSetName", ""))
-        styled_entry(self._idc_frame, v).grid(row=4, column=1, sticky="ew", padx=(6, 0))
+        styled_entry(self._idc_frame, v,
+                     placeholder="PowerUserAccess"
+                    ).grid(row=4, column=1, sticky="ew", padx=(6, 0))
         self._idc["permissionSetName"] = v
         tk.Label(self._idc_frame,
                  text="As shown in your AWS access portal, e.g. PowerUserAccess\n"
@@ -702,7 +735,9 @@ class SettingsContent(tk.Frame):
         tk.Label(self._saml_frame, text="IdP App URL", width=18, anchor="w",
                  bg=CLR_BG, fg=CLR_FG).grid(row=0, column=0, sticky="w", pady=3)
         v = tk.StringVar(value=saml.get("idpAppUrl", ""))
-        styled_entry(self._saml_frame, v).grid(row=0, column=1, sticky="ew", padx=(6, 0))
+        styled_entry(self._saml_frame, v,
+                     placeholder="https://your-org.okta.com/app/amazon_aws/exxxxxx/sso/saml"
+                    ).grid(row=0, column=1, sticky="ew", padx=(6, 0))
         self._saml["idpAppUrl"] = v
         tk.Label(self._saml_frame,
                  text="The SSO app link from your identity provider (e.g. an\n"
@@ -719,7 +754,9 @@ class SettingsContent(tk.Frame):
         tk.Label(self._saml_frame, text="Expected Account ID", width=18, anchor="w",
                  bg=CLR_BG, fg=CLR_FG).grid(row=3, column=0, sticky="w", pady=3)
         v = tk.StringVar(value=saml.get("expectedAccountId", ""))
-        styled_entry(self._saml_frame, v).grid(row=3, column=1, sticky="ew", padx=(6, 0))
+        styled_entry(self._saml_frame, v,
+                     placeholder="123456789012"
+                    ).grid(row=3, column=1, sticky="ew", padx=(6, 0))
         self._saml["expectedAccountId"] = v
         tk.Label(self._saml_frame,
                  text="Used to verify the user picked the right account after signing\n"
@@ -762,6 +799,13 @@ class SettingsContent(tk.Frame):
         else:
             self._idc_frame.pack_forget()
             self._saml_frame.pack(fill="x", pady=(0, 8))
+        # The IDC and SAML panels aren't the same height, and the window is
+        # non-resizable with a size fixed once at creation — without this,
+        # switching to whichever panel is taller clips its Save button
+        # below the window edge, same failure mode as the original bug.
+        top = self.winfo_toplevel()
+        top.update_idletasks()
+        top.geometry(f"{max(520, top.winfo_reqwidth())}x{top.winfo_reqheight()}")
 
     # ── Save ──────────────────────────────────────────────────────────────────
     def _save(self):
@@ -804,7 +848,7 @@ class SettingsWindow(tk.Toplevel):
                         on_cancel=self.destroy).pack(fill="both", expand=True)
 
         self.update_idletasks()
-        self.geometry("520x480")
+        self.geometry(f"{max(520, self.winfo_reqwidth())}x{self.winfo_reqheight()}")
         px = parent.winfo_x() + (parent.winfo_width()  - self.winfo_width())  // 2
         py = parent.winfo_y() + (parent.winfo_height() - self.winfo_height()) // 2
         self.geometry(f"+{px}+{py}")
