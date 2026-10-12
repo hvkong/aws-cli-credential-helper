@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-aws-cli-credential-helper  v1.0
+aws-cli-credential-helper  v1.1
 A focused credential-management helper for AWS CLI.  This tool does
 exactly one thing: keep the `aws-cli-credential-helper` AWS profile signed in
 and show the user how much credential time is left.
@@ -95,9 +95,14 @@ def resource_path(relative: str) -> str:
 
 def set_window_icon(window: tk.Misc):
     """Best-effort — sets the titlebar/taskbar icon on Windows. Toplevel
-    windows inherit this from the root automatically, so this only needs
-    to run once. No-op on Mac, where the Dock icon comes from the .app
-    bundle's .icns resource set at build time instead."""
+    windows inherit this from the root automatically. No-op on Mac, where
+    the Dock icon comes from the .app bundle's .icns resource set at
+    build time instead.
+
+    Note: on Windows, a withdraw()/deiconify() cycle on a window can drop
+    a previously-set iconbitmap before the window is ever shown. Callers
+    that withdraw a window after creating it should call this again right
+    before/after deiconify() — see main()."""
     if not IS_WINDOWS:
         return
     try:
@@ -109,19 +114,40 @@ AWS_CLI_DOWNLOAD          = "https://aws.amazon.com/cli/"
 MIN_VERSION_FOR_AWS_LOGIN = (2, 32, 0)
 
 # ── Palette ───────────────────────────────────────────────────────────────────
-CLR_BG        = "#ffffff"
-CLR_HEADER_BG = "#1a1a2e"
-CLR_HEADER_FG = "#ffffff"
-CLR_STATUS_BG = "#f0f4f8"
-CLR_BTN       = "#0078D4"
-CLR_BTN_FG    = "#ffffff"
-CLR_GREEN     = "#28a745"
-CLR_RED       = "#dc3545"
-CLR_AMBER     = "#f0a030"
-CLR_MUTED     = "#666666"
-CLR_BANNER_BG = "#fff3cd"
-CLR_BANNER_FG = "#856404"
-CLR_STEP_BG   = "#eef3fb"
+# Dark theme — AWS Squid Ink navy backgrounds with AWS orange accents.
+CLR_BG         = "#1b2430"   # main window background (dark navy-slate)
+CLR_FG         = "#e3e6ea"   # default body text (light gray)
+CLR_HEADER_BG  = "#11151c"   # header strip — darker than body for depth
+CLR_HEADER_FG  = "#ffffff"
+CLR_STATUS_BG  = "#242e3b"   # card/panel background, lighter than CLR_BG
+CLR_STEP_BG    = "#1f2b3d"   # SAML step boxes
+CLR_ENTRY_BG   = "#2a3542"   # text entry fields
+CLR_ENTRY_FG   = "#e3e6ea"
+CLR_BORDER     = "#3a4654"   # subtle outline for entries
+CLR_BTN        = "#FF9900"   # AWS orange — primary action buttons
+CLR_BTN_FG     = "#1b2430"   # dark navy text on orange (contrast)
+CLR_BTN_HOVER  = "#e68a00"   # darker orange for hover state
+CLR_BTN_NEUTRAL       = "#2a3542"  # secondary/neutral buttons (Cancel, Close, etc.)
+CLR_BTN_NEUTRAL_HOVER = "#374251"
+CLR_GREEN      = "#3fb950"
+CLR_RED        = "#ff6b6b"
+CLR_AMBER      = "#f0a030"
+CLR_MUTED      = "#9aa5b1"   # secondary/hint text
+CLR_BANNER_BG  = "#3a2f12"   # warning banner (amber-tinted)
+CLR_BANNER_FG  = "#f0c674"
+CLR_INFO_BG    = "#1f2b3d"   # informational banner (blue-tinted)
+CLR_INFO_FG    = "#8fb8e8"
+
+def styled_entry(parent: tk.Widget, textvariable: tk.StringVar, width: int = 36) -> tk.Entry:
+    """Consistent dark-themed text entry — plain tk.Entry defaults to a
+    white background with a black cursor, which needs overriding on every
+    instance to fit a dark window."""
+    return tk.Entry(
+        parent, textvariable=textvariable, width=width,
+        bg=CLR_ENTRY_BG, fg=CLR_ENTRY_FG, insertbackground=CLR_ENTRY_FG,
+        relief="flat", highlightthickness=1,
+        highlightbackground=CLR_BORDER, highlightcolor=CLR_BTN
+    )
 
 DEFAULT_CONFIG = {
     "_readme": (
@@ -241,7 +267,7 @@ def _blocking_error(title: str, message: str,
 
     tk.Label(dlg, text=title, bg=CLR_BG,
              font=("", 12, "bold"), fg=CLR_RED).pack(padx=20, pady=(18, 4))
-    tk.Label(dlg, text=message, bg=CLR_BG, justify="left",
+    tk.Label(dlg, text=message, bg=CLR_BG, fg=CLR_FG, justify="left",
              wraplength=420).pack(padx=20, pady=(0, 16))
 
     btn_row = tk.Frame(dlg, bg=CLR_BG)
@@ -253,10 +279,13 @@ def _blocking_error(title: str, message: str,
 
     if action_label and action:
         tk.Button(btn_row, text=action_label, bg=CLR_BTN, fg=CLR_BTN_FG,
+                  activebackground=CLR_BTN_HOVER, activeforeground=CLR_BTN_FG,
                   relief="flat", cursor="hand2", padx=12, pady=6,
                   command=action).pack(side="left", padx=(0, 8))
 
-    tk.Button(btn_row, text="Close", padx=12, pady=6,
+    tk.Button(btn_row, text="Close", bg=CLR_BTN_NEUTRAL, fg=CLR_FG,
+              activebackground=CLR_BTN_NEUTRAL_HOVER, activeforeground=CLR_FG,
+              relief="flat", cursor="hand2", padx=12, pady=6,
               command=close).pack(side="left")
 
     dlg.update_idletasks()
@@ -522,6 +551,7 @@ class SetupWizard(tk.Toplevel):
         self.title("AWS CLI Credential Helper — First-time Setup")
         self.resizable(False, False)
         self.configure(bg=CLR_BG)
+        set_window_icon(self)
         self.cfg        = cfg
         self.on_complete = on_complete
         self.protocol("WM_DELETE_WINDOW", self._on_cancel)
@@ -575,14 +605,18 @@ class SettingsContent(tk.Frame):
 
         btn_row = tk.Frame(foot, bg=CLR_BG)
         btn_row.pack(fill="x")
-        tk.Button(btn_row, text="Open Config File", relief="flat", fg=CLR_MUTED,
+        tk.Button(btn_row, text="Open Config File", bg=CLR_BG, relief="flat", fg=CLR_MUTED,
+                  activebackground=CLR_BG, activeforeground=CLR_FG,
                   cursor="hand2", command=open_config_file).pack(side="left")
-        tk.Button(btn_row, text="Delete Config…", relief="flat", fg=CLR_RED,
+        tk.Button(btn_row, text="Delete Config…", bg=CLR_BG, relief="flat", fg=CLR_RED,
+                  activebackground=CLR_BG, activeforeground=CLR_RED,
                   cursor="hand2", command=self._delete_config).pack(side="left", padx=(10, 0))
         if on_cancel:
-            tk.Button(btn_row, text="Cancel", width=9,
-                      command=on_cancel).pack(side="right", padx=(6, 0))
+            tk.Button(btn_row, text="Cancel", width=9, bg=CLR_BTN_NEUTRAL, fg=CLR_FG,
+                      activebackground=CLR_BTN_NEUTRAL_HOVER, activeforeground=CLR_FG,
+                      relief="flat", command=on_cancel).pack(side="right", padx=(6, 0))
         tk.Button(btn_row, text="Save", width=9, bg=CLR_BTN, fg=CLR_BTN_FG,
+                  activebackground=CLR_BTN_HOVER, activeforeground=CLR_BTN_FG,
                   relief="flat", cursor="hand2", command=self._save).pack(side="right")
 
     def _delete_config(self):
@@ -605,49 +639,53 @@ class SettingsContent(tk.Frame):
         outer.pack(fill="both", expand=True)
         auth = self.cfg.get("auth", {})
 
-        tk.Label(outer, text="Authentication Method", bg=CLR_BG,
+        tk.Label(outer, text="Authentication Method", bg=CLR_BG, fg=CLR_FG,
                  font=("", 10, "bold")).pack(anchor="w", pady=(0, 6))
 
         self._auth_method = tk.StringVar(value=auth.get("method", "idc"))
         rb = tk.Frame(outer, bg=CLR_BG)
         rb.pack(anchor="w", pady=(0, 6))
-        tk.Radiobutton(rb, text="AWS Identity Center (IDC)", bg=CLR_BG,
+        tk.Radiobutton(rb, text="AWS Identity Center (IDC)", bg=CLR_BG, fg=CLR_FG,
+                       activebackground=CLR_BG, activeforeground=CLR_FG,
+                       selectcolor=CLR_BTN, highlightthickness=0,
                        variable=self._auth_method, value="idc",
                        command=self._toggle_auth).pack(side="left", padx=(0, 20))
-        tk.Radiobutton(rb, text="Direct SAML federation", bg=CLR_BG,
+        tk.Radiobutton(rb, text="Direct SAML federation", bg=CLR_BG, fg=CLR_FG,
+                       activebackground=CLR_BG, activeforeground=CLR_FG,
+                       selectcolor=CLR_BTN, highlightthickness=0,
                        variable=self._auth_method, value="saml",
                        command=self._toggle_auth).pack(side="left")
 
         # ── IDC frame ─────────────────────────────────────────────────────────
         self._idc_frame = tk.LabelFrame(outer, text="Identity Center Settings",
-                                         bg=CLR_BG, padx=12, pady=8)
+                                         bg=CLR_BG, fg=CLR_FG, padx=12, pady=8)
         idc = auth.get("idc", {})
         self._idc = {}
 
         tk.Label(self._idc_frame, text="SSO Start URL", width=18, anchor="w",
-                 bg=CLR_BG).grid(row=0, column=0, sticky="w", pady=3)
+                 bg=CLR_BG, fg=CLR_FG).grid(row=0, column=0, sticky="w", pady=3)
         v = tk.StringVar(value=idc.get("ssoStartUrl", ""))
-        tk.Entry(self._idc_frame, textvariable=v, width=36).grid(row=0, column=1, sticky="ew", padx=(6, 0))
+        styled_entry(self._idc_frame, v).grid(row=0, column=1, sticky="ew", padx=(6, 0))
         self._idc["ssoStartUrl"] = v
 
         tk.Label(self._idc_frame, text="SSO Region", width=18, anchor="w",
-                 bg=CLR_BG).grid(row=1, column=0, sticky="w", pady=3)
+                 bg=CLR_BG, fg=CLR_FG).grid(row=1, column=0, sticky="w", pady=3)
         v = tk.StringVar(value=idc.get("ssoRegion", "us-east-1"))
-        tk.Entry(self._idc_frame, textvariable=v, width=36).grid(row=1, column=1, sticky="ew", padx=(6, 0))
+        styled_entry(self._idc_frame, v).grid(row=1, column=1, sticky="ew", padx=(6, 0))
         self._idc["ssoRegion"] = v
 
         tk.Label(self._idc_frame, text="Account ID", width=18, anchor="w",
-                 bg=CLR_BG).grid(row=2, column=0, sticky="w", pady=3)
+                 bg=CLR_BG, fg=CLR_FG).grid(row=2, column=0, sticky="w", pady=3)
         v = tk.StringVar(value=idc.get("accountId", ""))
-        tk.Entry(self._idc_frame, textvariable=v, width=36).grid(row=2, column=1, sticky="ew", padx=(6, 0))
+        styled_entry(self._idc_frame, v).grid(row=2, column=1, sticky="ew", padx=(6, 0))
         self._idc["accountId"] = v
         tk.Label(self._idc_frame, text="AWS account number this permission set grants access to",
                  bg=CLR_BG, fg=CLR_MUTED, font=("", 8)).grid(row=3, column=1, sticky="w", padx=(6, 0))
 
         tk.Label(self._idc_frame, text="Permission Set Name", width=18, anchor="w",
-                 bg=CLR_BG).grid(row=4, column=0, sticky="w", pady=(8, 3))
+                 bg=CLR_BG, fg=CLR_FG).grid(row=4, column=0, sticky="w", pady=(8, 3))
         v = tk.StringVar(value=idc.get("permissionSetName", ""))
-        tk.Entry(self._idc_frame, textvariable=v, width=36).grid(row=4, column=1, sticky="ew", padx=(6, 0))
+        styled_entry(self._idc_frame, v).grid(row=4, column=1, sticky="ew", padx=(6, 0))
         self._idc["permissionSetName"] = v
         tk.Label(self._idc_frame,
                  text="As shown in your AWS access portal, e.g. PowerUserAccess\n"
@@ -657,14 +695,14 @@ class SettingsContent(tk.Frame):
 
         # ── SAML frame ────────────────────────────────────────────────────────
         self._saml_frame = tk.LabelFrame(outer, text="Direct SAML Federation Settings",
-                                          bg=CLR_BG, padx=12, pady=8)
+                                          bg=CLR_BG, fg=CLR_FG, padx=12, pady=8)
         saml = auth.get("saml", {})
         self._saml = {}
 
         tk.Label(self._saml_frame, text="IdP App URL", width=18, anchor="w",
-                 bg=CLR_BG).grid(row=0, column=0, sticky="w", pady=3)
+                 bg=CLR_BG, fg=CLR_FG).grid(row=0, column=0, sticky="w", pady=3)
         v = tk.StringVar(value=saml.get("idpAppUrl", ""))
-        tk.Entry(self._saml_frame, textvariable=v, width=36).grid(row=0, column=1, sticky="ew", padx=(6, 0))
+        styled_entry(self._saml_frame, v).grid(row=0, column=1, sticky="ew", padx=(6, 0))
         self._saml["idpAppUrl"] = v
         tk.Label(self._saml_frame,
                  text="The SSO app link from your identity provider (e.g. an\n"
@@ -673,15 +711,15 @@ class SettingsContent(tk.Frame):
                      row=1, column=1, sticky="w", padx=(6, 0), pady=(0, 6))
 
         tk.Label(self._saml_frame, text="AWS Region", width=18, anchor="w",
-                 bg=CLR_BG).grid(row=2, column=0, sticky="w", pady=3)
+                 bg=CLR_BG, fg=CLR_FG).grid(row=2, column=0, sticky="w", pady=3)
         v = tk.StringVar(value=saml.get("region", "us-east-1"))
-        tk.Entry(self._saml_frame, textvariable=v, width=36).grid(row=2, column=1, sticky="ew", padx=(6, 0))
+        styled_entry(self._saml_frame, v).grid(row=2, column=1, sticky="ew", padx=(6, 0))
         self._saml["region"] = v
 
         tk.Label(self._saml_frame, text="Expected Account ID", width=18, anchor="w",
-                 bg=CLR_BG).grid(row=3, column=0, sticky="w", pady=3)
+                 bg=CLR_BG, fg=CLR_FG).grid(row=3, column=0, sticky="w", pady=3)
         v = tk.StringVar(value=saml.get("expectedAccountId", ""))
-        tk.Entry(self._saml_frame, textvariable=v, width=36).grid(row=3, column=1, sticky="ew", padx=(6, 0))
+        styled_entry(self._saml_frame, v).grid(row=3, column=1, sticky="ew", padx=(6, 0))
         self._saml["expectedAccountId"] = v
         tk.Label(self._saml_frame,
                  text="Used to verify the user picked the right account after signing\n"
@@ -692,17 +730,17 @@ class SettingsContent(tk.Frame):
         note = _info_banner(
             self._saml_frame,
             "Requires AWS CLI v2.32.0+ (uses the 'aws login' command).",
-            bg="#eef3fb", fg="#2a4d7a"
+            bg=CLR_INFO_BG, fg=CLR_INFO_FG
         )
         note.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(4, 0))
 
         # Profile name
         prow = tk.Frame(outer, bg=CLR_BG)
         prow.pack(fill="x", pady=(10, 0))
-        tk.Label(prow, text="AWS Profile Name", bg=CLR_BG,
+        tk.Label(prow, text="AWS Profile Name", bg=CLR_BG, fg=CLR_FG,
                  width=17, anchor="w").pack(side="left")
         self._profile = tk.StringVar(value=auth.get("profileName", "aws-cli-credential-helper"))
-        tk.Entry(prow, textvariable=self._profile, width=28).pack(side="left", padx=(6, 0))
+        styled_entry(prow, self._profile, width=28).pack(side="left", padx=(6, 0))
 
         reminder = _info_banner(
             outer,
@@ -711,7 +749,7 @@ class SettingsContent(tk.Frame):
             "credentials and point it at this same profile name — that step "
             "has to be done once, per tool, inside that tool's own "
             "configuration.",
-            bg="#eef3fb", fg="#2a4d7a"
+            bg=CLR_INFO_BG, fg=CLR_INFO_FG
         )
         reminder.pack(fill="x", pady=(14, 0))
 
@@ -758,6 +796,7 @@ class SettingsWindow(tk.Toplevel):
         self.title("Settings — AWS CLI Credential Helper")
         self.resizable(False, False)
         self.configure(bg=CLR_BG)
+        set_window_icon(self)
         self.grab_set()
 
         SettingsContent(self, cfg,
@@ -821,9 +860,10 @@ class MainWindow:
                               bg=CLR_STATUS_BG, font=("", 16))
         self._dot.pack(side="left")
         self._status_lbl = tk.Label(row1, text="Checking credentials…",
-                                     bg=CLR_STATUS_BG, font=("", 10))
+                                     bg=CLR_STATUS_BG, fg=CLR_FG, font=("", 10))
         self._status_lbl.pack(side="left", padx=(6, 0))
         tk.Button(row1, text="↻  Refresh", relief="flat", bg=CLR_STATUS_BG,
+                  activebackground=CLR_STATUS_BG, activeforeground=CLR_FG,
                   fg=CLR_MUTED, cursor="hand2", font=("", 9),
                   command=self._check_session).pack(side="right")
 
@@ -864,8 +904,9 @@ class MainWindow:
                 row.pack(fill="x")
                 tk.Label(row, text="✓ Signed in", bg=CLR_BG,
                          fg=CLR_GREEN, font=("", 10, "bold")).pack(side="left")
-                tk.Button(row, text="Switch Account / Re-authenticate", relief="flat",
-                          fg=CLR_MUTED, cursor="hand2", font=("", 9),
+                tk.Button(row, text="Switch Account / Re-authenticate", bg=CLR_BG, relief="flat",
+                          fg=CLR_MUTED, activebackground=CLR_BG, activeforeground=CLR_FG,
+                          cursor="hand2", font=("", 9),
                           command=self._force_show_saml_steps).pack(side="right")
                 tk.Label(self._signin_frame,
                          text="You can close the Credential Helper app now. "
@@ -881,7 +922,7 @@ class MainWindow:
         else:
             btn = tk.Button(
                 self._signin_frame, text="Sign In", font=("", 11), padx=10, pady=9,
-                bg=CLR_BTN, fg=CLR_BTN_FG, activebackground="#005fa3",
+                bg=CLR_BTN, fg=CLR_BTN_FG, activebackground=CLR_BTN_HOVER,
                 activeforeground=CLR_BTN_FG, relief="flat", cursor="hand2",
                 command=self._idc_sign_in
             )
@@ -921,10 +962,13 @@ class MainWindow:
         row = tk.Frame(step1, bg=CLR_STEP_BG)
         row.pack(fill="x", pady=(2, 0))
         tk.Button(row, text="Sign in via SSO", bg=CLR_BTN, fg=CLR_BTN_FG,
+                  activebackground=CLR_BTN_HOVER, activeforeground=CLR_BTN_FG,
                   relief="flat", cursor="hand2", padx=8, pady=5,
                   command=self._saml_step1).pack(side="left")
-        self._copy_btn = tk.Button(row, text="⎘ Copy Link", relief="flat",
-                  cursor="hand2", padx=8, pady=5, command=self._saml_copy_link)
+        self._copy_btn = tk.Button(row, text="⎘ Copy Link", bg=CLR_STEP_BG, fg=CLR_FG,
+                  activebackground=CLR_STEP_BG, activeforeground=CLR_FG,
+                  relief="flat", cursor="hand2", padx=8, pady=5,
+                  command=self._saml_copy_link)
         self._copy_btn.pack(side="left", padx=(6, 0))
 
         step2 = tk.Frame(parent, bg=CLR_STEP_BG, padx=10, pady=8)
@@ -932,6 +976,7 @@ class MainWindow:
         tk.Label(step2, text="Step 2", bg=CLR_STEP_BG, font=("", 8, "bold"),
                  fg=CLR_MUTED).pack(anchor="w")
         tk.Button(step2, text="Finish Sign-In", bg=CLR_BTN, fg=CLR_BTN_FG,
+                  activebackground=CLR_BTN_HOVER, activeforeground=CLR_BTN_FG,
                   relief="flat", cursor="hand2", padx=8, pady=5,
                   command=self._saml_step2).pack(anchor="w", pady=(2, 0))
 
@@ -1057,6 +1102,7 @@ def main():
     set_window_icon(root)
 
     def open_main(final_cfg):
+        set_window_icon(root)   # re-apply: withdraw()/deiconify() can drop it on Windows
         root.geometry("380x400")
         root.update_idletasks()
         sw = root.winfo_screenwidth()
